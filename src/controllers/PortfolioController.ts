@@ -2,6 +2,25 @@ import { Request, Response, RequestHandler } from 'express';
 import ClientPortfolio, { IClientPortfolio } from '../models/ClientPortfolio';
 import StockPortfolio, { IStockPortfolio } from '../models/StockPortfolio';
 
+
+
+
+
+// Helper function to parse "DD-MM-YYYY" to Date object
+const parseDate = (dateStr: string): Date | null => {
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return null;
+    const [day, month, year] = parts.map(part => parseInt(part, 10));
+    if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
+    return new Date(year, month - 1, day); // Months are 0-indexed in JS Date
+};
+
+
+
+
+
+
+
 /**
  * Get Overall Portfolio Data by Client
  * - Endpoint: GET /api/portfolio/:clientId
@@ -32,16 +51,38 @@ export const getPortfolioByClient: RequestHandler = async (req: Request, res: Re
 
         // Apply date range filter if both startDate and endDate are provided
         if (startDate && endDate) {
-            const start = new Date(startDate as string);
-            const end = new Date(endDate as string);
+            if (typeof startDate !== 'string' || typeof endDate !== 'string') {
+                console.error(`[ERROR] startDate and endDate should be strings`);
+                res.status(400).json({ message: 'startDate and endDate should be strings in "DD-MM-YYYY" format.' });
+                return;
+            }
+
+            const start = parseDate(startDate);
+            const end = parseDate(endDate);
+
+            if (!start || !end) {
+                console.error(`[ERROR] Invalid date format for startDate or endDate`);
+                res.status(400).json({ message: 'Invalid date format. Please use "DD-MM-YYYY".' });
+                return;
+            }
+
+            // Normalize start and end to the start and end of the day
+            start.setHours(0, 0, 0, 0);
+            end.setHours(23, 59, 59, 999);
 
             portfolioData = portfolioData.filter((entry) => {
-                const entryDate = new Date(entry.date.split('-').reverse().join('-'));
+                const entryDate = parseDate(entry.date);
+                if (!entryDate) {
+                    console.warn(`[WARN] Skipping entry with invalid date format: ${entry.date}`);
+                    return false;
+                }
                 return entryDate >= start && entryDate <= end;
             });
 
             console.log(`[DEBUG] Filtered portfolio data for date range:`, portfolioData);
         }
+
+        // Additional filters can be applied here in the future
 
         // Send the filtered or unfiltered portfolio data as requested
         res.status(200).json({ ClientCode: portfolio.ClientCode, Portfolio: portfolioData });
@@ -71,14 +112,6 @@ export const getPortfolioByClient: RequestHandler = async (req: Request, res: Re
 
 
 
-// Helper function to parse "DD-MM-YYYY" to Date object
-const parseDate = (dateStr: string): Date | null => {
-    const parts = dateStr.split('-');
-    if (parts.length !== 3) return null;
-    const [day, month, year] = parts.map(part => parseInt(part, 10));
-    if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
-    return new Date(year, month - 1, day); // Months are 0-indexed in JS Date
-};
 
 
 
