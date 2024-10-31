@@ -14,7 +14,7 @@ app.use(cors());
 app.use(express.json());
 
 // Routes
-app.use('/api/portfolio', portfolioRoutes);
+app.use('/portfolio', portfolioRoutes);
 
 // MongoDB Connection
 const mongoURI = process.env.MONGO_URI || '';
