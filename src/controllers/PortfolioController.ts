@@ -16,10 +16,6 @@ const parseDate = (dateStr: string): Date | null => {
 
 
 
-
-
-
-
 /**
  * Get Overall Portfolio Data by Client
  * - Endpoint: GET /api/portfolio/:clientId
@@ -29,10 +25,19 @@ const parseDate = (dateStr: string): Date | null => {
  */
 export const getPortfolioByClient: RequestHandler = async (req: Request, res: Response): Promise<void> => {
     const { clientId } = req.params;
-    const { startDate, endDate } = req.query;
+    const {
+        startDate,
+        endDate,
+        minTotalGain,
+        maxTotalGain,
+        minPortfolioValue,
+        maxPortfolioValue,
+        minTodayGain,
+        maxTodayGain
+    } = req.query;
 
     console.log(`[INFO] Fetching overall portfolio data for clientId: ${clientId}`);
-    console.log(`[INFO] Query parameters - startDate: ${startDate}, endDate: ${endDate}`);
+    console.log(`[INFO] Query parameters - startDate: ${startDate}, endDate: ${endDate}, minTotalGain: ${minTotalGain}, maxTotalGain: ${maxTotalGain}, minPortfolioValue: ${minPortfolioValue}, maxPortfolioValue: ${maxPortfolioValue}, minTodayGain: ${minTodayGain}, maxTodayGain: ${maxTodayGain}`);
 
     try {
         // Retrieve client's portfolio directly from the database
@@ -48,26 +53,38 @@ export const getPortfolioByClient: RequestHandler = async (req: Request, res: Re
 
         let portfolioData = portfolio.Portfolio;
 
-        // Apply date range filter if both startDate and endDate are provided
-        if (startDate && endDate) {
-            if (typeof startDate !== 'string' || typeof endDate !== 'string') {
-                console.error(`[ERROR] startDate and endDate should be strings`);
-                res.status(400).json({ message: 'startDate and endDate should be strings in "DD-MM-YYYY" format.' });
-                return;
+        /**
+         * 1. Filter by Date Range
+         *    - Users can provide startDate, endDate, or both.
+         *    - Dates should be in "DD-MM-YYYY" format.
+         *    - Examples:
+         *      - ?startDate=01-01-2024
+         *      - ?endDate=31-12-2024
+         *      - ?startDate=01-01-2024&endDate=31-12-2024
+         */
+        if (startDate || endDate) {
+            let start: Date | null = null;
+            let end: Date | null = null;
+
+            if (startDate && typeof startDate === 'string') {
+                start = parseDate(startDate);
+                if (!start) {
+                    console.error(`[ERROR] Invalid date format for startDate`);
+                    res.status(400).json({ message: 'Invalid startDate format. Please use "DD-MM-YYYY".' });
+                    return;
+                }
+                start.setHours(0, 0, 0, 0); // Normalize to start of the day
             }
 
-            const start = parseDate(startDate);
-            const end = parseDate(endDate);
-
-            if (!start || !end) {
-                console.error(`[ERROR] Invalid date format for startDate or endDate`);
-                res.status(400).json({ message: 'Invalid date format. Please use "DD-MM-YYYY".' });
-                return;
+            if (endDate && typeof endDate === 'string') {
+                end = parseDate(endDate);
+                if (!end) {
+                    console.error(`[ERROR] Invalid date format for endDate`);
+                    res.status(400).json({ message: 'Invalid endDate format. Please use "DD-MM-YYYY".' });
+                    return;
+                }
+                end.setHours(23, 59, 59, 999); // Normalize to end of the day
             }
-
-            // Normalize start and end to the start and end of the day
-            start.setHours(0, 0, 0, 0);
-            end.setHours(23, 59, 59, 999);
 
             portfolioData = portfolioData.filter((entry) => {
                 const entryDate = parseDate(entry.date);
@@ -75,13 +92,147 @@ export const getPortfolioByClient: RequestHandler = async (req: Request, res: Re
                     console.warn(`[WARN] Skipping entry with invalid date format: ${entry.date}`);
                     return false;
                 }
-                return entryDate >= start && entryDate <= end;
+                if (start && end) {
+                    return entryDate >= start && entryDate <= end;
+                } else if (start) {
+                    return entryDate >= start;
+                } else if (end) {
+                    return entryDate <= end;
+                }
+                return true; // No date filter applied
             });
 
             console.log(`[DEBUG] Filtered portfolio data for date range:`, portfolioData);
         }
 
-        // Additional filters can be applied here in the future
+        /**
+         * 2. Filter by Total Gain/Loss Threshold
+         *    - Users can provide minTotalGain, maxTotalGain, or both.
+         *    - Example:
+         *      - ?minTotalGain=-1000
+         *      - ?maxTotalGain=5000
+         *      - ?minTotalGain=-1000&maxTotalGain=5000
+         */
+        if (minTotalGain || maxTotalGain) {
+            let minGain: number | undefined;
+            let maxGain: number | undefined;
+
+            if (minTotalGain) {
+                minGain = parseFloat(minTotalGain as string);
+                if (isNaN(minGain)) {
+                    console.error(`[ERROR] Invalid value for minTotalGain`);
+                    res.status(400).json({ message: 'Invalid value for minTotalGain. It should be a number.' });
+                    return;
+                }
+            }
+
+            if (maxTotalGain) {
+                maxGain = parseFloat(maxTotalGain as string);
+                if (isNaN(maxGain)) {
+                    console.error(`[ERROR] Invalid value for maxTotalGain`);
+                    res.status(400).json({ message: 'Invalid value for maxTotalGain. It should be a number.' });
+                    return;
+                }
+            }
+
+            portfolioData = portfolioData.filter((entry) => {
+                const totalGain = entry.totalprofitandloss; // Corrected property name
+                if (minGain !== undefined && totalGain < minGain) return false;
+                if (maxGain !== undefined && totalGain > maxGain) return false;
+                return true;
+            });
+
+            console.log(`[DEBUG] Applied Total Gain/Loss Threshold Filter - min: ${minGain !== undefined ? minGain : 'None'}, max: ${maxGain !== undefined ? maxGain : 'None'}`, portfolioData);
+        }
+
+        /**
+         * 3. Filter by Portfolio Value Threshold
+         *    - Users can provide minPortfolioValue, maxPortfolioValue, or both.
+         *    - Example:
+         *      - ?minPortfolioValue=10000
+         *      - ?maxPortfolioValue=50000
+         *      - ?minPortfolioValue=10000&maxPortfolioValue=50000
+         */
+        if (minPortfolioValue || maxPortfolioValue) {
+            let minValue: number | undefined;
+            let maxValue: number | undefined;
+
+            if (minPortfolioValue) {
+                minValue = parseFloat(minPortfolioValue as string);
+                if (isNaN(minValue)) {
+                    console.error(`[ERROR] Invalid value for minPortfolioValue`);
+                    res.status(400).json({ message: 'Invalid value for minPortfolioValue. It should be a number.' });
+                    return;
+                }
+            }
+
+            if (maxPortfolioValue) {
+                maxValue = parseFloat(maxPortfolioValue as string);
+                if (isNaN(maxValue)) {
+                    console.error(`[ERROR] Invalid value for maxPortfolioValue`);
+                    res.status(400).json({ message: 'Invalid value for maxPortfolioValue. It should be a number.' });
+                    return;
+                }
+            }
+
+            portfolioData = portfolioData.filter((entry) => {
+                const portfolioValue = entry.totalinvvalue; // Corrected property name
+                if (minValue !== undefined && portfolioValue < minValue) return false;
+                if (maxValue !== undefined && portfolioValue > maxValue) return false;
+                return true;
+            });
+
+            console.log(`[DEBUG] Applied Portfolio Value Threshold Filter - min: ${minValue !== undefined ? minValue : 'None'}, max: ${maxValue !== undefined ? maxValue : 'None'}`, portfolioData);
+        }
+
+        /**
+         * 4. Filter by Today's Total Gain
+         *    - Users can provide minTodayGain, maxTodayGain, or both.
+         *    - Example:
+         *      - ?minTodayGain=100
+         *      - ?maxTodayGain=500
+         *      - ?minTodayGain=100&maxTodayGain=500
+         */
+        if (minTodayGain || maxTodayGain) {
+            let minToday: number | undefined;
+            let maxToday: number | undefined;
+
+            if (minTodayGain) {
+                minToday = parseFloat(minTodayGain as string);
+                if (isNaN(minToday)) {
+                    console.error(`[ERROR] Invalid value for minTodayGain`);
+                    res.status(400).json({ message: 'Invalid value for minTodayGain. It should be a number.' });
+                    return;
+                }
+            }
+
+            if (maxTodayGain) {
+                maxToday = parseFloat(maxTodayGain as string);
+                if (isNaN(maxToday)) {
+                    console.error(`[ERROR] Invalid value for maxTodayGain`);
+                    res.status(400).json({ message: 'Invalid value for maxTodayGain. It should be a number.' });
+                    return;
+                }
+            }
+
+            portfolioData = portfolioData.filter((entry) => {
+                const todayGain = entry.totalTodayGain;
+                if (minToday !== undefined && todayGain < minToday) return false;
+                if (maxToday !== undefined && todayGain > maxToday) return false;
+                return true;
+            });
+
+            console.log(`[DEBUG] Applied Today's Total Gain Filter - min: ${minToday !== undefined ? minToday : 'None'}, max: ${maxToday !== undefined ? maxToday : 'None'}`, portfolioData);
+        }
+
+        /**
+         * Summary of Applied Filters:
+         * - Date Range: [startDate] to [endDate]
+         * - Total Gain/Loss: [minTotalGain] to [maxTotalGain]
+         * - Portfolio Value: [minPortfolioValue] to [maxPortfolioValue]
+         * - Today's Total Gain: [minTodayGain] to [maxTodayGain]
+         */
+        console.log(`[INFO] Applied Filters - Date Range: ${startDate ? startDate : 'None'} to ${endDate ? endDate : 'None'}, Total Gain/Loss: ${minTotalGain ? minTotalGain : 'None'} to ${maxTotalGain ? maxTotalGain : 'None'}, Portfolio Value: ${minPortfolioValue ? minPortfolioValue : 'None'} to ${maxPortfolioValue ? maxPortfolioValue : 'None'}, Today's Total Gain: ${minTodayGain ? minTodayGain : 'None'} to ${maxTodayGain ? maxTodayGain : 'None'}`);
 
         // Send the filtered or unfiltered portfolio data as requested
         res.status(200).json({ ClientCode: portfolio.ClientCode, Portfolio: portfolioData });
@@ -92,6 +243,11 @@ export const getPortfolioByClient: RequestHandler = async (req: Request, res: Re
 };
 
 
+
+
+
+
+
 /**
  * Get Individual Stock Data by Client
  * - Endpoint: GET /api/portfolio/:clientId/stocks
@@ -99,12 +255,6 @@ export const getPortfolioByClient: RequestHandler = async (req: Request, res: Re
  * - Filters: Optional `startDate`, `endDate`, and `symbol` query parameters.
  * - Response: Returns an array of stock data entries with fields like quantity, overall PnL, and daily gain.
  */
-
-
-
-
-
-
 
 
 // Controller to fetch and filter stock data by client
