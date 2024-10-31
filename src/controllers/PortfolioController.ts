@@ -244,10 +244,6 @@ export const getPortfolioByClient: RequestHandler = async (req: Request, res: Re
 
 
 
-
-
-
-
 /**
  * Get Individual Stock Data by Client
  * - Endpoint: GET /api/portfolio/:clientId/stocks
@@ -530,5 +526,65 @@ export const getStockDataByClient: RequestHandler = async (req: Request, res: Re
     } catch (error) {
         console.error(`[ERROR] Error fetching stock data for clientId: ${clientId}`, error);
         res.status(500).json({ message: 'Error fetching stock data', error });
+    }
+};
+
+
+
+
+
+
+
+/**
+ * Get Combined Portfolio and Stock Data by Client
+ * - Endpoint: GET /portfolio/combined/:clientId
+ * - Purpose: Retrieve both overall portfolio data and individual stock data for a specified client.
+ * - Response: Returns an object containing both portfolio and stock data.
+ */
+export const getCombinedPortfolioData: RequestHandler = async (req: Request, res: Response): Promise<void> => {
+    const { clientId } = req.params;
+
+    console.log(`[INFO] Fetching combined portfolio and stock data for clientId: ${clientId}`);
+
+    try {
+        // Fetch overall portfolio data
+        const portfolioPromise = ClientPortfolio.findOne({ ClientCode: clientId }).lean<IClientPortfolio>();
+        
+        // Fetch individual stock data
+        const stockPortfolioPromise = StockPortfolio.findOne({ ClientCode: clientId }).lean<IStockPortfolio>();
+
+        // Execute both queries in parallel
+        const [portfolio, stockPortfolio] = await Promise.all([portfolioPromise, stockPortfolioPromise]);
+
+        console.log(`[DEBUG] Retrieved portfolio document:`, portfolio);
+        console.log(`[DEBUG] Retrieved stock portfolio document:`, stockPortfolio);
+
+        // Check if both portfolio and stock data exist
+        if (!portfolio && !stockPortfolio) {
+            console.warn(`[WARN] Neither portfolio nor stock portfolio found for clientId: ${clientId}`);
+            res.status(404).json({ message: 'No portfolio or stock data found for this client' });
+            return;
+        }
+
+        // Prepare the combined response
+        const combinedData: { portfolio?: IClientPortfolio; stockPortfolio?: IStockPortfolio } = {};
+
+        if (portfolio) {
+            combinedData.portfolio = portfolio;
+        } else {
+            console.warn(`[WARN] Portfolio data not found for clientId: ${clientId}`);
+        }
+
+        if (stockPortfolio) {
+            combinedData.stockPortfolio = stockPortfolio;
+        } else {
+            console.warn(`[WARN] Stock portfolio data not found for clientId: ${clientId}`);
+        }
+
+        // Send the combined data
+        res.status(200).json(combinedData);
+    } catch (error) {
+        console.error(`[ERROR] Error fetching combined data for clientId: ${clientId}`, error);
+        res.status(500).json({ message: 'Error fetching combined portfolio and stock data', error });
     }
 };
