@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import cors from 'cors';
@@ -26,8 +26,16 @@ mongoose
     .then(() => console.log('MongoDB connected'))
     .catch((error) => console.error('MongoDB connection error:', error));
 
-// Start Server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+// Determine the environment (defaults to 'development' if NODE_ENV is not set)
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Export for serverless deployment if in production; otherwise, start server locally
+if (isProduction) {
+    module.exports = app;
+} else {
+    // Start the server locally if not in production
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+    });
+}
