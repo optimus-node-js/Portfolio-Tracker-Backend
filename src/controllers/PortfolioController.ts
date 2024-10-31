@@ -1,9 +1,8 @@
 import { Request, Response, RequestHandler } from 'express';
 import ClientPortfolio, { IClientPortfolio } from '../models/ClientPortfolio';
 import StockPortfolio, { IStockPortfolio } from '../models/StockPortfolio';
-
-
-
+import { ParsedQs } from 'qs';
+import { parseStringParam } from '../utils/queryHelpers';
 
 
 // Helper function to parse "DD-MM-YYYY" to Date object
@@ -93,34 +92,6 @@ export const getPortfolioByClient: RequestHandler = async (req: Request, res: Re
 };
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /**
  * Get Individual Stock Data by Client
  * - Endpoint: GET /api/portfolio/:clientId/stocks
@@ -139,7 +110,18 @@ export const getPortfolioByClient: RequestHandler = async (req: Request, res: Re
 // Controller to fetch and filter stock data by client
 export const getStockDataByClient: RequestHandler = async (req: Request, res: Response): Promise<void> => {
     const { clientId } = req.params;
-    const { startDate, endDate, symbol, exchange, minPnlPercentage, maxPnlPercentage, minOverallPnL, maxOverallPnL, minQuantity, maxQuantity } = req.query;
+    const {
+        startDate,
+        endDate,
+        symbol,
+        exchange,
+        minPnlPercentage,
+        maxPnlPercentage,
+        minOverallPnL,
+        maxOverallPnL,
+        minQuantity,
+        maxQuantity
+    } = req.query;
 
     console.log(`[INFO] Fetching individual stock data for clientId: ${clientId}`);
     console.log(`[INFO] Query parameters - startDate: ${startDate}, endDate: ${endDate}, symbol: ${symbol}, exchange: ${exchange}, minPnlPercentage: ${minPnlPercentage}, maxPnlPercentage: ${maxPnlPercentage}, minOverallPnL: ${minOverallPnL}, maxOverallPnL: ${maxOverallPnL}, minQuantity: ${minQuantity}, maxQuantity: ${maxQuantity}`);
@@ -160,49 +142,64 @@ export const getStockDataByClient: RequestHandler = async (req: Request, res: Re
 
         /**
          * 1. Filter by Symbol
-         *    - If 'symbol' query parameter is provided, filter stocks by the specified symbol.
-         *    - Example: ?symbol=AARTIDRUGS-EQ
+         *    - Users can provide one or multiple symbols separated by commas.
+         *    - Example: ?symbol=AARTIDRUGS-EQ,BANKBARODA-EQ
          */
-        if (symbol && typeof symbol === 'string') {
-            filteredStocks = filteredStocks.filter((stock) => stock.stockName === symbol);
-            console.log(`[DEBUG] Filtered stocks by symbol: ${symbol}`, filteredStocks);
+        if (symbol) {
+            const symbols: string[] = parseStringParam(symbol);
+            filteredStocks = filteredStocks.filter((stock) => symbols.includes(stock.stockName));
+            console.log(`[DEBUG] Filtered stocks by symbols: ${symbols.join(', ')}`, filteredStocks);
         }
 
         /**
          * 2. Filter by Exchange
-         *    - If 'exchange' query parameter is provided, filter entries by the specified exchange.
-         *    - Example: ?exchange=NSE
+         *    - Users can provide one or multiple exchanges separated by commas.
+         *    - Example: ?exchange=NSE,BSE
          */
-        if (exchange && typeof exchange === 'string') {
+        if (exchange) {
+            const exchanges: string[] = parseStringParam(exchange);
             filteredStocks = filteredStocks.map((stock) => {
-                const filteredEntries = stock.entries.filter((entry) => entry.exchange === exchange);
+                const filteredEntries = stock.entries.filter((entry) => exchanges.includes(entry.exchange));
                 return {
                     ...stock,
                     entries: filteredEntries,
                 };
             }).filter(stock => stock.entries.length > 0); // Retain stocks with entries after filtering
-            console.log(`[DEBUG] Filtered stocks by exchange: ${exchange}`, filteredStocks);
+            console.log(`[DEBUG] Filtered stocks by exchanges: ${exchanges.join(', ')}`, filteredStocks);
         }
 
         /**
          * 3. Filter by Date Range
-         *    - If both 'startDate' and 'endDate' are provided, filter entries within the specified date range.
+         *    - Users can provide startDate, endDate, or both.
          *    - Dates should be in "DD-MM-YYYY" format.
-         *    - Example: ?startDate=01-01-2024&endDate=31-12-2024
+         *    - Examples:
+         *      - ?startDate=01-01-2024
+         *      - ?endDate=31-12-2024
+         *      - ?startDate=01-01-2024&endDate=31-12-2024
          */
-        if (startDate && endDate && typeof startDate === 'string' && typeof endDate === 'string') {
-            const start = parseDate(startDate);
-            const end = parseDate(endDate);
+        if (startDate || endDate) {
+            let start: Date | null = null;
+            let end: Date | null = null;
 
-            if (!start || !end) {
-                console.error(`[ERROR] Invalid date format for startDate or endDate`);
-                res.status(400).json({ message: 'Invalid date format. Please use "DD-MM-YYYY".' });
-                return;
+            if (startDate && typeof startDate === 'string') {
+                start = parseDate(startDate);
+                if (!start) {
+                    console.error(`[ERROR] Invalid date format for startDate`);
+                    res.status(400).json({ message: 'Invalid startDate format. Please use "DD-MM-YYYY".' });
+                    return;
+                }
+                start.setHours(0, 0, 0, 0); // Normalize to start of the day
             }
 
-            // Normalize start and end to the start and end of the day
-            start.setHours(0, 0, 0, 0);
-            end.setHours(23, 59, 59, 999);
+            if (endDate && typeof endDate === 'string') {
+                end = parseDate(endDate);
+                if (!end) {
+                    console.error(`[ERROR] Invalid date format for endDate`);
+                    res.status(400).json({ message: 'Invalid endDate format. Please use "DD-MM-YYYY".' });
+                    return;
+                }
+                end.setHours(23, 59, 59, 999); // Normalize to end of the day
+            }
 
             filteredStocks = filteredStocks.map((stock) => {
                 const filteredEntries = stock.entries.filter((entry) => {
@@ -211,7 +208,14 @@ export const getStockDataByClient: RequestHandler = async (req: Request, res: Re
                         console.warn(`[WARN] Skipping entry with invalid date format: ${entry.date}`);
                         return false;
                     }
-                    return entryDate >= start && entryDate <= end;
+                    if (start && end) {
+                        return entryDate >= start && entryDate <= end;
+                    } else if (start) {
+                        return entryDate >= start;
+                    } else if (end) {
+                        return entryDate <= end;
+                    }
+                    return true; // No date filter applied
                 });
                 return {
                     ...stock,
@@ -224,14 +228,16 @@ export const getStockDataByClient: RequestHandler = async (req: Request, res: Re
 
         /**
          * 4. Filter by Gain/Loss Percentage
-         *    - 'minPnlPercentage' and/or 'maxPnlPercentage' can be provided to filter entries based on pnlpercentage.
-         *    - Example: ?minPnlPercentage=-20&maxPnlPercentage=10
+         *    - Users can provide minPnlPercentage, maxPnlPercentage, or both.
+         *    - Example:
+         *      - ?minPnlPercentage=-10
+         *      - ?maxPnlPercentage=20
+         *      - ?minPnlPercentage=-10&maxPnlPercentage=20
          */
-        let pnlPercentageFilterApplied = false;
-        let minPnl: number | undefined;
-        let maxPnl: number | undefined;
-
         if (minPnlPercentage || maxPnlPercentage) {
+            let minPnl: number | undefined;
+            let maxPnl: number | undefined;
+
             if (minPnlPercentage) {
                 minPnl = parseFloat(minPnlPercentage as string);
                 if (isNaN(minPnl)) {
@@ -263,20 +269,21 @@ export const getStockDataByClient: RequestHandler = async (req: Request, res: Re
                 };
             }).filter(stock => stock.entries.length > 0); // Retain stocks with entries after filtering
 
-            pnlPercentageFilterApplied = true;
-            console.log(`[DEBUG] Applied PnL Percentage Filter - min: ${minPnl}, max: ${maxPnl}`, filteredStocks);
+            console.log(`[DEBUG] Applied PnL Percentage Filter - min: ${minPnl !== undefined ? minPnl : 'None'}, max: ${maxPnl !== undefined ? maxPnl : 'None'}`, filteredStocks);
         }
 
         /**
          * 5. Filter by Overall Profit and Loss Amount
-         *    - 'minOverallPnL' and/or 'maxOverallPnL' can be provided to filter entries based on overallPnL.
-         *    - Example: ?minOverallPnL=-500&maxOverallPnL=500
+         *    - Users can provide minOverallPnL, maxOverallPnL, or both.
+         *    - Example:
+         *      - ?minOverallPnL=-500
+         *      - ?maxOverallPnL=500
+         *      - ?minOverallPnL=-500&maxOverallPnL=500
          */
-        let overallPnLFilterApplied = false;
-        let minPnL: number | undefined;
-        let maxPnL: number | undefined;
-
         if (minOverallPnL || maxOverallPnL) {
+            let minPnL: number | undefined;
+            let maxPnL: number | undefined;
+
             if (minOverallPnL) {
                 minPnL = parseFloat(minOverallPnL as string);
                 if (isNaN(minPnL)) {
@@ -308,20 +315,21 @@ export const getStockDataByClient: RequestHandler = async (req: Request, res: Re
                 };
             }).filter(stock => stock.entries.length > 0); // Retain stocks with entries after filtering
 
-            overallPnLFilterApplied = true;
-            console.log(`[DEBUG] Applied Overall PnL Filter - min: ${minPnL}, max: ${maxPnL}`, filteredStocks);
+            console.log(`[DEBUG] Applied Overall PnL Filter - min: ${minPnL !== undefined ? minPnL : 'None'}, max: ${maxPnL !== undefined ? maxPnL : 'None'}`, filteredStocks);
         }
 
         /**
          * 6. Filter by Quantity
-         *    - 'minQuantity' and/or 'maxQuantity' can be provided to filter entries based on quantity.
-         *    - Example: ?minQuantity=10&maxQuantity=100
+         *    - Users can provide minQuantity, maxQuantity, or both.
+         *    - Example:
+         *      - ?minQuantity=10
+         *      - ?maxQuantity=100
+         *      - ?minQuantity=10&maxQuantity=100
          */
-        let quantityFilterApplied = false;
-        let minQty: number | undefined;
-        let maxQty: number | undefined;
-
         if (minQuantity || maxQuantity) {
+            let minQty: number | undefined;
+            let maxQty: number | undefined;
+
             if (minQuantity) {
                 minQty = parseInt(minQuantity as string, 10);
                 if (isNaN(minQty)) {
@@ -353,20 +361,19 @@ export const getStockDataByClient: RequestHandler = async (req: Request, res: Re
                 };
             }).filter(stock => stock.entries.length > 0); // Retain stocks with entries after filtering
 
-            quantityFilterApplied = true;
-            console.log(`[DEBUG] Applied Quantity Filter - min: ${minQty}, max: ${maxQty}`, filteredStocks);
+            console.log(`[DEBUG] Applied Quantity Filter - min: ${minQty !== undefined ? minQty : 'None'}, max: ${maxQty !== undefined ? maxQty : 'None'}`, filteredStocks);
         }
 
         /**
          * Summary of Applied Filters:
-         * - Symbol: ${symbol}
-         * - Exchange: ${exchange}
-         * - Date Range: ${startDate} to ${endDate}
-         * - PnL Percentage: ${minPnl} to ${maxPnl}
-         * - Overall PnL: ${minPnL} to ${maxPnL}
-         * - Quantity: ${minQty} to ${maxQty}
+         * - Symbol(s): [symbols]
+         * - Exchange(s): [exchanges]
+         * - Date Range: [startDate] to [endDate]
+         * - PnL Percentage: [minPnlPercentage] to [maxPnlPercentage]
+         * - Overall PnL: [minOverallPnL] to [maxOverallPnL]
+         * - Quantity: [minQuantity] to [maxQuantity]
          */
-        console.log(`[INFO] Applied Filters - Symbol: ${symbol || 'None'}, Exchange: ${exchange || 'None'}, Date Range: ${startDate && endDate ? `${startDate} to ${endDate}` : 'None'}, PnL Percentage: ${pnlPercentageFilterApplied ? `min=${minPnl}, max=${maxPnl}` : 'None'}, Overall PnL: ${overallPnLFilterApplied ? `min=${minPnL}, max=${maxPnL}` : 'None'}, Quantity: ${quantityFilterApplied ? `min=${minQty}, max=${maxQty}` : 'None'}`);
+        console.log(`[INFO] Applied Filters - Symbol(s): ${symbol ? (Array.isArray(symbol) ? (symbol as string[]).join(', ') : (symbol as string).split(',').map(s => s.trim()).join(', ')) : 'None'}, Exchange(s): ${exchange ? (Array.isArray(exchange) ? (exchange as string[]).join(', ') : (exchange as string).split(',').map(e => e.trim()).join(', ')) : 'None'}, Date Range: ${startDate ? startDate : 'None'} to ${endDate ? endDate : 'None'}, PnL Percentage: ${minPnlPercentage ? minPnlPercentage : 'None'} to ${maxPnlPercentage ? maxPnlPercentage : 'None'}, Overall PnL: ${minOverallPnL ? minOverallPnL : 'None'} to ${maxOverallPnL ? maxOverallPnL : 'None'}, Quantity: ${minQuantity ? minQuantity : 'None'} to ${maxQuantity ? maxQuantity : 'None'}`);
 
         // Send the filtered data
         res.status(200).json(filteredStocks);
@@ -375,8 +382,3 @@ export const getStockDataByClient: RequestHandler = async (req: Request, res: Re
         res.status(500).json({ message: 'Error fetching stock data', error });
     }
 };
-
-
-
-
-
