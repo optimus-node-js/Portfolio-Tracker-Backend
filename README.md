@@ -4,6 +4,10 @@
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white) ![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=nodedotjs&logoColor=white) ![Express](https://img.shields.io/badge/Express-000000?style=flat-square&logo=express&logoColor=white) ![MongoDB](https://img.shields.io/badge/MongoDB-47A248?style=flat-square&logo=mongodb&logoColor=white) ![Vercel](https://img.shields.io/badge/Vercel-000000?style=flat-square&logo=vercel&logoColor=white)
 
+**Live:** [portfolio-tracker-backend.vercel.app](https://portfolio-tracker-backend.vercel.app)
+
+Try the public demo: [`/portfolio/demo/combined`](https://portfolio-tracker-backend.vercel.app/portfolio/demo/combined). Real client codes need `MONGO_URI` pointing at data synced by [Portfolio-Tracker](https://github.com/optimus-node-js/Portfolio-Tracker).
+
 ## API
 
 | Method | Endpoint | Description |
