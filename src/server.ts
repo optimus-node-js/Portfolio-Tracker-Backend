@@ -1,41 +1,29 @@
-import express, { Request, Response } from 'express';
-import mongoose from 'mongoose';
+import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import portfolioRoutes from './routes/portfolioRoutes';
 
-// Load environment variables from .env file
 dotenv.config();
 
 const app = express();
-
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Routes
-app.use('/portfolio', portfolioRoutes);
-
-// MongoDB Connection
-const mongoURI = process.env.MONGO_URI || '';
-mongoose
-    .connect(mongoURI, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-    } as mongoose.ConnectOptions)
-    .then(() => console.log('MongoDB connected'))
-    .catch((error) => console.error('MongoDB connection error:', error));
-
-// Determine the environment (defaults to 'development' if NODE_ENV is not set)
-const isProduction = process.env.NODE_ENV === 'production';
-
-// Export for serverless deployment if in production; otherwise, start server locally
-if (isProduction) {
-    module.exports = app;
-} else {
-    // Start the server locally if not in production
-    const PORT = process.env.PORT || 5000;
-    app.listen(PORT, () => {
-        console.log(`Server running on port ${PORT}`);
+app.get(['/', '/health'], (_req, res) => {
+    res.json({
+        ok: true,
+        service: 'portfolio-tracker-api',
+        endpoints: ['GET /portfolio/:clientId', 'GET /portfolio/:clientId/stocks', 'GET /portfolio/:clientId/combined'],
+        demo: '/portfolio/demo/combined',
     });
+});
+app.use('/portfolio', portfolioRoutes);
+app.use((req, res) => { res.status(404).json({ message: `Not found: ${req.originalUrl}` }); });
+
+if (require.main === module) {
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => console.log(`Portfolio Tracker API on http://localhost:${PORT}`));
 }
+
+export default app;
+module.exports = app;

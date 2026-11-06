@@ -1,18 +1,6 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "dist/server.js",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": [".env"]
-      }
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "dist/server.js"
-    }
-  ]
+  "buildCommand": "npm run build",
+  "outputDirectory": "public",
+  "functions": { "api/index.js": { "includeFiles": "dist/**" } },
+  "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
 }

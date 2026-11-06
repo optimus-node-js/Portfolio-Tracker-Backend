@@ -3,6 +3,22 @@ import ClientPortfolio, { IClientPortfolio } from '../models/ClientPortfolio';
 import StockPortfolio, { IStockPortfolio } from '../models/StockPortfolio';
 import { ParsedQs } from 'qs';
 import { parseStringParam } from '../utils/queryHelpers';
+import { demoPortfolios } from '../demo';
+import { connectDB } from '../db';
+
+// "demo" serves a generated sample portfolio; any other client id reads MongoDB.
+const loadClientPortfolio = async (clientIdParam: string | string[]): Promise<IClientPortfolio | null> => {
+    const clientId = String(clientIdParam);
+    if (clientId === 'demo') return demoPortfolios().portfolio as unknown as IClientPortfolio;
+    await connectDB();
+    return ClientPortfolio.findOne({ ClientCode: clientId }).lean<IClientPortfolio>();
+};
+const loadStockPortfolio = async (clientIdParam: string | string[]): Promise<IStockPortfolio | null> => {
+    const clientId = String(clientIdParam);
+    if (clientId === 'demo') return demoPortfolios().stockPortfolio as unknown as IStockPortfolio;
+    await connectDB();
+    return StockPortfolio.findOne({ ClientCode: clientId }).lean<IStockPortfolio>();
+};
 
 
 // Helper function to parse "DD-MM-YYYY" to Date object
@@ -41,7 +57,7 @@ export const getPortfolioByClient: RequestHandler = async (req: Request, res: Re
 
     try {
         // Retrieve client's portfolio directly from the database
-        const portfolio = await ClientPortfolio.findOne({ ClientCode: clientId }).lean<IClientPortfolio>();
+        const portfolio = await loadClientPortfolio(clientId);
 
         console.log(`[DEBUG] Retrieved portfolio document for clientId: ${clientId}`, portfolio);
 
@@ -274,7 +290,7 @@ export const getStockDataByClient: RequestHandler = async (req: Request, res: Re
 
     try {
         // Retrieve stock data directly from the database
-        const stockPortfolio = await StockPortfolio.findOne({ ClientCode: clientId }).lean<IStockPortfolio>();
+        const stockPortfolio = await loadStockPortfolio(clientId);
 
         console.log(`[DEBUG] Retrieved stock portfolio document for clientId: ${clientId}`, stockPortfolio);
 
@@ -548,10 +564,10 @@ export const getCombinedPortfolioData: RequestHandler = async (req: Request, res
 
     try {
         // Fetch overall portfolio data
-        const portfolioPromise = ClientPortfolio.findOne({ ClientCode: clientId }).lean<IClientPortfolio>();
+        const portfolioPromise = loadClientPortfolio(clientId);
         
         // Fetch individual stock data
-        const stockPortfolioPromise = StockPortfolio.findOne({ ClientCode: clientId }).lean<IStockPortfolio>();
+        const stockPortfolioPromise = loadStockPortfolio(clientId);
 
         // Execute both queries in parallel
         const [portfolio, stockPortfolio] = await Promise.all([portfolioPromise, stockPortfolioPromise]);
